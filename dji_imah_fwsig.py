@@ -78,7 +78,7 @@ keys = {
     # There are multiple PUEK keys, as DJI tried changing them as soon as they are published,
     # without fixing vulnerabilities which allowed to read them
     "PUEK-2017-09":  bytes([ # Programming Update Enc Key whitebox AES v2; first discovered 2018-02-12 by Jan Dumon
-        # discovered and published 2025-11-04 by joint efforts DF&C Lab. at Kookmin University (South Korea) and the Korea Atomic Energy Research Institute
+        # discovered and published 2025-11-04 by joint efforts DF&C Lab. at Kookmin University (South Korea) and the Cyber Security Team at Korea Atomic Energy Research Institute (KAERI)
         # first use on 2017-09-20; used for:
         # WM100 FW V01.00.0700-V01.00.1000, WM620 FW V01.02.0100-V01.02.0500
         0x52, 0x52, 0x36, 0x47, 0x0b, 0x80, 0x5a, 0x16, 0x19, 0x9e, 0x66, 0x35, 0x70, 0x4a, 0x89, 0x63
