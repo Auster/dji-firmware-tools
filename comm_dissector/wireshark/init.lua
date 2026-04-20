@@ -17,6 +17,13 @@ local dji_script_path = ""
 
 dofile(dji_script_path .. 'dji-dumlv1-proto.lua')
 
+-- Extended DUML dissectors with additional command parsing
+dofile(dji_script_path .. 'dji-dumlv1-flyc-ext.lua')
+dofile(dji_script_path .. 'dji-dumlv1-camera-ext.lua')
+dofile(dji_script_path .. 'dji-dumlv1-gimbal-ext.lua')
+dofile(dji_script_path .. 'dji-dumlv1-battery-ext.lua')
+dofile(dji_script_path .. 'dji-dumlv1-hdlink-ext.lua')
+
 dofile(dji_script_path .. 'dji-p3-flyrec-proto.lua')
 dofile(dji_script_path .. 'dji-p3-batt-proto.lua')
 dofile(dji_script_path .. 'dji-p3.lua')

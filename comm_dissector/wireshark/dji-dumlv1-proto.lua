@@ -124,6 +124,7 @@ local SPECIAL_UART_CMD_TEXT = {
     [0x21] = 'SDK Ctrl Camera Start Video Ctrl',
     [0x22] = 'SDK Ctrl Camera Stop Video Ctrl',
     [0xff] = 'UAV Loopback',
+    [0xF0] = 'RC Lock Control', -- LockRcControl
 }
 
 local CENTER_BRD_UART_CMD_TEXT = {
@@ -146,6 +147,8 @@ local CENTER_BRD_UART_CMD_TEXT = {
     [0x31] = 'Center Req Bat SelfDischarge Time',
     [0x32] = 'Center Set Bat SelfDischarge Time',
     [0x33] = 'Center Req Bat Barcode',
+    [0x41] = 'Center Pack Mode Fail Reason Get/Push', -- GetPushPackModeFailReason
+    [0x42] = 'Center Battery In Position Get/Push', -- GetPushBatteryInPosition
 }
 
 local RC_UART_CMD_TEXT = {
@@ -213,6 +216,7 @@ local RC_UART_CMD_TEXT = {
     [0x42] = 'RC Follow Focus Get/Push',
     [0x47] = 'RC App Special Control',
     [0x48] = 'RC Freq Mode Info Get', -- RC Param Get
+    [0x49] = 'RC Base Station RTK Enable', -- EnableBaseStationRTK
     [0x4c] = 'RC Pro Custom Buttons Status Get/Push',
     [0x50] = 'RC Push Rmc Key Info', -- MCU407 Set
     [0x51] = 'RC Push To Glass', -- RC Custom Buttons Status Get/Push
@@ -226,6 +230,8 @@ local RC_UART_CMD_TEXT = {
     [0x59] = 'RC Work Function Get',
 	[0x98] = 'Follow Focus2 Get/Push',
     [0x99] = 'Follow Focus Info Set',
+    [0xab] = 'RC Flow Control Get/Push', -- GetPushRcFlowControl
+    [0xef] = 'RC Handshake', -- HandShake
     [0xf0] = 'RC RF Cert Config Set', -- Set Transciever Pwr Mode
     [0xf5] = 'RC Test Stick Value',
     [0xf6] = 'RC Factory Get Board Id',
@@ -289,6 +295,7 @@ local WIFI_UART_CMD_TEXT = {
     [0x32] = 'WiFi Ap Del Country Code',
     [0x33] = 'WiFi Ap Verify Cc', -- Is Country Code Supported
     [0x39] = 'WiFi Get Work Mode',
+    [0xAA] = 'WiFi Complex Info Get/Push', -- GetPushWifiComplexInfo
     [0x3a] = 'WiFi Set Work Mode',
     [0x3b] = 'WiFi Config By Qrcode',
     [0x80] = 'WiFi Push Mac Stat', -- Log Get/Push
@@ -317,7 +324,11 @@ local DM36X_UART_CMD_TEXT = {
     [0x21] = 'DM36x Bitrate Get',
     [0x30] = 'DM36x Foresight Showed Set', -- Status Push
     [0x31] = 'DM36x Foresight Showed Get', -- Send Vmem Fd To Vision
+    [0x41] = 'DM36x Video Transfer Format Set', -- SetVideoTransferFormat
     [0x60] = 'Active Track Camera Set',
+    [0x61] = 'DM36x Video Cameras Set', -- SetVideoCameras
+    [0x62] = 'DM36x Live Video Status Push', -- PushLiveVideoStatus
+    [0x63] = 'DM36x Current Camera Set', -- SetCurrentCamera
 }
 
 local HD_LINK_UART_CMD_TEXT = {
@@ -376,6 +387,8 @@ local HD_LINK_UART_CMD_TEXT = {
     [0x3f] = 'HDLnk RC Conn Status Push',
     [0x41] = 'HDLnk Racing Set Modem Info',
     [0x42] = 'HDLnk Racing Get Modem Info',
+    [0x43] = 'HDLnk Link Mode Get/Push', -- GetPushLinkMode
+    [0x44] = 'HDLnk SDR Link Mode Set', -- SetSdrLinkMode
     [0x50] = 'HDLnk LED Set',
     [0x51] = 'HDLnk Power Set', -- Robomaster Cnfg Set
     --[0x51] = 'HDLnk Robomaster Cnfg Set', -- only for robomaster, or only newer platforms
@@ -389,8 +402,13 @@ local HD_LINK_UART_CMD_TEXT = {
     [0x59] = 'HDLnk Mic Info Get/Push',
     [0x62] = 'HDLnk Mic Enable Get',
     [0x63] = 'HDLnk Mic Enable Set',
+    [0x65] = 'HDLnk RTCM Pack Send', -- SendRtcmPack
+    [0x69] = 'HDLnk SDR Uplink Bandwidth Get', -- GetSdrUplinkBandwidth
     [0x71] = 'HDLnk Main Camera Bandwidth Percent Set',
     [0x72] = 'HDLnk Main Camera Bandwidth Percent Get',
+    [0x81] = 'HDLnk SDR LTE Status Get/Push', -- GetPushSdrLteStatus
+    [0xf0] = 'HDLnk Debug Video Set', -- SetDebugVideo
+    [0xf6] = 'HDLnk Channel Plan Push', -- OFDM frequency-hop channel plan + quality (32-slot SoA)
 }
 
 local MBINO_UART_CMD_TEXT = {
@@ -471,7 +489,7 @@ local SIM_UART_CMD_TEXT = {
 local ESC_UART_CMD_TEXT = {
 }
 
-local BATTERY_UART_CMD_TEXT = {
+BATTERY_UART_CMD_TEXT = {
     [0x01] = 'Battery Static Data Get',
     [0x02] = 'Battery Dynamic Data Get/Push',
     [0x03] = 'Battery Cell Voltage Get/Push', -- Get Single Core Volt
@@ -497,6 +515,29 @@ local DATA_LOG_UART_CMD_TEXT = {
 
 local RTK_UART_CMD_TEXT = {
     [0x09] = 'Rtk Status',
+    [0x10] = 'RTK GPS SNR Ant1 Push',
+    [0x11] = 'RTK GLONASS SNR Ant1 Push',
+    [0x12] = 'RTK Beidou SNR Ant1 Push',
+    [0x13] = 'RTK GPS SNR Ant2 Push',
+    [0x14] = 'RTK GLONASS SNR Ant2 Push',
+    [0x15] = 'RTK Beidou SNR Ant2 Push',
+    [0x16] = 'RTK GPS SNR AntB Push',
+    [0x17] = 'RTK GLONASS SNR AntB Push',
+    [0x18] = 'RTK Beidou SNR AntB Push',
+    [0x1A] = 'RTK Galileo SNR Ant1 Push',
+    [0x1B] = 'RTK Galileo SNR Ant2 Push',
+    [0x1C] = 'RTK Galileo SNR AntB Push',
+    [0x29] = 'NRTK Data Transfer',
+    [0x34] = 'NRTK Init',
+    [0x35] = 'RTK Type Set',
+    [0x36] = 'NRTK GGA Send',
+    [0x37] = 'NRTK Data Get/Push',
+    [0x38] = 'NRTK Activate',
+    [0x3D] = 'RTK Reference Station Source Get',
+    [0xF4] = 'RTK Multi Param Set',
+    [0xF5] = 'RTK Multi Param Get',
+    [0xFB] = 'RTK SNR Enable Get',
+    [0xFC] = 'RTK SNR Enable Set',
 }
 
 local AUTO_UART_CMD_TEXT = {
@@ -2908,7 +2949,7 @@ local function battery_re_arrangement_dissector(pkt_length, buffer, pinfo, subtr
     if (payload:len() ~= offset) then subtree:add_expert_info(PI_PROTOCOL,PI_WARN,"Battery Re-Arrangement: Payload size different than expected") end
 end
 
-local BATTERY_UART_CMD_DISSECT = {
+BATTERY_UART_CMD_DISSECT = {
     [0x01] = battery_static_data_dissector,
     [0x02] = battery_dynamic_data_dissector,
     [0x03] = battery_cell_voltage_dissector,
