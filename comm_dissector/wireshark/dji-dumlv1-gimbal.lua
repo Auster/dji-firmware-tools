@@ -28,11 +28,14 @@ GIMBAL_UART_CMD_TEXT = {
     [0x13] = 'Gimbal User Params Reset Default', -- Resume Default Param
     [0x14] = 'Gimbal Abs Angle Control',
     [0x15] = 'Gimbal Movement',
+    [0x1A] = 'Gimbal Release Set', -- SetGimbalRelease
     [0x1C] = 'Gimbal Type Get',
     [0x1E] = 'Gimbal Degree Info Subscription',
+    [0x1F] = 'Gimbal Serial Params Get', -- GetSerialParams
     [0x20] = 'Gimbal TBD 20',
     [0x21] = 'Gimbal TBD 21',
     [0x24] = 'Gimbal User Params Get',
+    [0x25] = 'Gimbal Common Protocol', -- CommonProtocol
     [0x27] = 'Gimbal Abnormal Status Get',
     [0x2b] = 'Gimbal Tutorial Status Get',
     [0x2c] = 'Gimbal Tutorial Step Set',
@@ -52,6 +55,8 @@ GIMBAL_UART_CMD_TEXT = {
     [0x56] = 'Gimbal NotiFy Camera Id',
     [0x57] = 'Handheld Stick State Get/Push',
     [0x58] = 'Handheld Stick Control Set', -- Handheld Stick Control Enable
+    [0x66] = 'Gimbal TBD 66', -- present in zv902 commands.json
+    [0x69] = 'Gimbal TBD 69',
 }
 
 -- Gimbal - Gimbal Control - 0x01
@@ -1521,6 +1526,42 @@ local function gimbal_handheld_stick_control_set_dissector(pkt_length, buffer, p
     if (payload:len() ~= offset) then subtree:add_expert_info(PI_PROTOCOL,PI_WARN,"Handheld Stick Control Set: Payload size different than expected") end
 end
 
+-- Gimbal - Gimbal TBD 66 - 0x66
+-- Description: TODO. Present in zv902 commands.json (req only, no ACK, zero flags).
+-- Supported in: UNKNOWN
+
+f.gimbal_tbd_66_unknown0 = ProtoField.int8 ("dji_dumlv1.gimbal_tbd_66_unknown0", "Unknown0", base.DEC, nil, nil)
+
+local function gimbal_tbd_66_dissector(pkt_length, buffer, pinfo, subtree)
+    local offset = 11
+    local payload = buffer(offset, pkt_length - offset - 2)
+    offset = 0
+
+    --subtree:add_le (f.gimbal_tbd_66_unknown0, payload(offset, 1))
+    --offset = offset + 1
+
+    if (offset ~= 0) then subtree:add_expert_info(PI_MALFORMED,PI_ERROR,"Gimbal TBD 66: Offset does not match - internal inconsistency") end
+    if (payload:len() ~= offset) then subtree:add_expert_info(PI_PROTOCOL,PI_WARN,"Gimbal TBD 66: Payload size different than expected") end
+end
+
+-- Gimbal - Gimbal TBD 69 - 0x69
+-- Description: TODO. Undocumented; observed in capture traffic for CMD_SET 0x04.
+-- Supported in: UNKNOWN
+
+f.gimbal_tbd_69_unknown0 = ProtoField.int8 ("dji_dumlv1.gimbal_tbd_69_unknown0", "Unknown0", base.DEC, nil, nil)
+
+local function gimbal_tbd_69_dissector(pkt_length, buffer, pinfo, subtree)
+    local offset = 11
+    local payload = buffer(offset, pkt_length - offset - 2)
+    offset = 0
+
+    --subtree:add_le (f.gimbal_tbd_69_unknown0, payload(offset, 1))
+    --offset = offset + 1
+
+    if (offset ~= 0) then subtree:add_expert_info(PI_MALFORMED,PI_ERROR,"Gimbal TBD 69: Offset does not match - internal inconsistency") end
+    if (payload:len() ~= offset) then subtree:add_expert_info(PI_PROTOCOL,PI_WARN,"Gimbal TBD 69: Payload size different than expected") end
+end
+
 GIMBAL_UART_CMD_DISSECT = {
     [0x01] = gimbal_control_dissector,
     [0x02] = gimbal_get_position_dissector,
@@ -1566,4 +1607,6 @@ GIMBAL_UART_CMD_DISSECT = {
     [0x56] = gimbal_notify_camera_id_dissector,
     [0x57] = gimbal_handheld_stick_state_get_dissector,
     [0x58] = gimbal_handheld_stick_control_set_dissector,
+    [0x66] = gimbal_tbd_66_dissector,
+    [0x69] = gimbal_tbd_69_dissector,
 }

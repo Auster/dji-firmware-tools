@@ -1,128 +1,185 @@
--- dji-dumlv1-hdlink-ext.lua
--- Dissector for DUML cmd_set=0x09 (HD Link), cmd_id=0xF6: OFDM Channel Plan Push
+-- DJI DUML v1 HD Link Extended Dissector
+-- Extension for dji-dumlv1-proto.lua, cmd_set 0x09 (HD Link)
+-- Adds dissectors for previously undocumented HD Link commands.
+
+local f = DJI_DUMLv1_PROTO.fields
+
+-- ===========================================================================
+-- HD Link - HDLnk Channel Plan Push - 0xF6
+-- ===========================================================================
 --
--- Payload layout (163 bytes, confirmed by packet analysis):
---   [0]        uint8    unk0 (unknown, seen 0x32)
---   [1]        uint8    unk1 (unknown, seen 0x02)
---   [2]        uint8    num_active  (active channel count, ≤32)
---   [3..66]   uint16 LE[32]  slot_freq_id[]   (64 bytes)
---   [67..98]  uint8[32]      slot_index[]
---   [99..130] uint8[32]      slot_quality[]   0-100 %
---   [131..162] uint8[32]     slot_flags[]
+-- Sent by HD Link GND (type 0x0E) → PC (type 0x0A) at approximately 10 Hz.
+-- Reports the OFDM frequency-hopping channel plan and per-channel link quality.
 --
--- Frequency decoding: stored uint16 → actual MHz
---   U-NII-3  (5735-5835 MHz): stored 2300..2700 → +3186
---   U-NII-2C (5470-5725 MHz): stored 2300..2700 where result ≥5470 (handled above)
---   U-NII-2A (5250-5470 MHz): stored 2100..2299 where result ≥5250
---   U-NII-1  (5150-5250 MHz): stored 2100..2299 where result ≥5150
---   2.4 GHz  (2400-2500 MHz): stored 1000..1199 → +1399
+-- Payload is always 163 bytes, fixed 32-slot Structure-of-Arrays (SoA):
+--
+--   Offset  Size        Description
+--   ------  ----------  --------------------------------------------------
+--   0       1           Sub-type (observed: 0x32)
+--   1       1           Bandwidth mode (0=20 MHz, 2=40 MHz)
+--   2       1           n_active: number of populated slots (e.g. 10 or 22)
+--   3       32×uint16   OFDM channel IDs (little-endian, DJI internal units)
+--   67      32×uint8    1-based channel indices for each slot
+--   99      32×uint8    Signal quality, 0-100 %
+--   131     32×uint8    Flags: bit0=in-hop-pool, bit1=DFS channel
+--
+-- Total: 3 + 64 + 32 + 32 + 32 = 163 bytes.
+--
+-- Frequency encoding:
+--   The stored uint16 value maps to a centre frequency in MHz as follows:
+--     stored 2300-2700 → 5 GHz U-NII-2C/3   (add 3186)
+--     stored 2100-2300 → 5 GHz U-NII-1/2A   (add 3066)
+--     stored 1000-1200 → 2.4 GHz             (add 1399)
+--
+-- Example observed channel plans:
+--   40 MHz mode (10 ch): 5510, 5550, 5670, 5270, 5310, 5770, 5829, 5190, 5230, 2445 MHz
+--   20 MHz mode (22 ch): 5500-5580, 5660-5700, 5260-5320, 5760-5838, 5180-5240, 2435, 2461 MHz
 
-local DUML_HDR = 11   -- bytes before payload in a DUML V1 frame
-
-local FREQ_OFF  = 3         -- uint16 LE × 32  (64 bytes)
-local IDX_OFF   = 3 + 64    -- = 67
-local QUAL_OFF  = 67 + 32   -- = 99
-local FLAGS_OFF = 99 + 32   -- = 131
-
-local p_ch = Proto("dji_dumlv1_ch_plan", "DJI DUMLv1 HD Link Channel Plan")
-local fld = {
-    unk0       = ProtoField.uint8 ("dji_dumlv1.hdlnk_ch_plan_unk0",       "Unknown[0]",   base.HEX),
-    unk1       = ProtoField.uint8 ("dji_dumlv1.hdlnk_ch_plan_unk1",       "Unknown[1]",   base.HEX),
-    num_active = ProtoField.uint8 ("dji_dumlv1.hdlnk_ch_plan_num_active", "Active Slots", base.DEC),
-    channel    = ProtoField.uint16("dji_dumlv1.hdlnk_ch_plan_channel",    "Channel",      base.HEX),
-    ch_freq    = ProtoField.uint16("dji_dumlv1.hdlnk_ch_plan_ch_freq",    "Freq",         base.DEC),
-    ch_quality = ProtoField.uint8 ("dji_dumlv1.hdlnk_ch_plan_ch_quality", "Quality",      base.DEC),
-    ch_index   = ProtoField.uint8 ("dji_dumlv1.hdlnk_ch_plan_ch_index",   "Slot Index",   base.DEC),
-    ch_flags   = ProtoField.uint8 ("dji_dumlv1.hdlnk_ch_plan_ch_flags",   "Flags",        base.HEX),
+local HDLNK_BANDWIDTH_ENUM = {
+    [0] = '20 MHz',
+    [1] = '30 MHz',
+    [2] = '40 MHz',
+    [3] = '80 MHz',
 }
-p_ch.fields = { fld.unk0, fld.unk1, fld.num_active, fld.channel,
-                fld.ch_freq, fld.ch_quality, fld.ch_index, fld.ch_flags }
 
+f.hd_link_ch_plan_sub_type  = ProtoField.uint8 ("dji_dumlv1.hd_link_ch_plan_sub_type",
+    "Sub Type", base.HEX, nil, nil, "Always 0x32 in observed packets")
+f.hd_link_ch_plan_bandwidth = ProtoField.uint8 ("dji_dumlv1.hd_link_ch_plan_bandwidth",
+    "Bandwidth Mode", base.DEC, HDLNK_BANDWIDTH_ENUM)
+f.hd_link_ch_plan_n_active  = ProtoField.uint8 ("dji_dumlv1.hd_link_ch_plan_n_active",
+    "Active Channels", base.DEC, nil, nil, "Number of populated slots in each SoA array")
+f.hd_link_ch_plan_freq_id   = ProtoField.uint16("dji_dumlv1.hd_link_ch_plan_freq_id",
+    "Freq ID", base.HEX, nil, nil, "DJI internal OFDM channel identifier (LE uint16)")
+f.hd_link_ch_plan_idx       = ProtoField.uint8 ("dji_dumlv1.hd_link_ch_plan_idx",
+    "Channel Index", base.DEC, nil, nil, "1-based slot index")
+f.hd_link_ch_plan_quality   = ProtoField.uint8 ("dji_dumlv1.hd_link_ch_plan_quality",
+    "Signal Quality", base.DEC, nil, nil, "0-100 %")
+f.hd_link_ch_plan_flags     = ProtoField.uint8 ("dji_dumlv1.hd_link_ch_plan_flags",
+    "Flags", base.HEX)
+f.hd_link_ch_plan_flag_hop  = ProtoField.uint8 ("dji_dumlv1.hd_link_ch_plan_flag_hop",
+    "In Hop Pool", base.DEC, nil, 0x01, "Bit 0: channel is in the active frequency-hop pool")
+f.hd_link_ch_plan_flag_dfs  = ProtoField.uint8 ("dji_dumlv1.hd_link_ch_plan_flag_dfs",
+    "DFS Channel", base.DEC, nil, 0x02, "Bit 1: channel requires Dynamic Frequency Selection")
+
+-- Decode a DJI OFDM channel ID to centre frequency in MHz.
+-- Returns an integer MHz value, or nil if the stored value is zero or unknown.
 local function decode_ofdm_freq_mhz(stored)
     if stored == 0 then return nil end
     if stored >= 2300 and stored <= 2700 then
-        return stored + 3186
+        return stored + 3186   -- 5 GHz U-NII-2C / U-NII-3  (5486 – 5886 MHz)
     elseif stored >= 2100 and stored < 2300 then
-        return stored + 3066
+        return stored + 3066   -- 5 GHz U-NII-1 / U-NII-2A  (5166 – 5366 MHz)
     elseif stored >= 1000 and stored < 1200 then
-        return stored + 1399
+        return stored + 1399   -- 2.4 GHz                    (2399 – 2599 MHz)
     end
-    return nil
+    return nil   -- outside known bands; display raw value only
 end
 
-local function band_name(mhz)
-    if not mhz then return "" end
-    if mhz >= 5735 then return "U-NII-3"
-    elseif mhz >= 5470 then return "U-NII-2C"
-    elseif mhz >= 5250 then return "U-NII-2A"
-    elseif mhz >= 5150 then return "U-NII-1"
-    elseif mhz >= 2400 then return "2.4GHz"
-    end
-    return ""
-end
+local CH_PLAN_SLOT_COUNT = 32
+local CH_PLAN_PAYLOAD_LEN = 163
 
 local function hd_link_channel_plan_dissector(pkt_length, buffer, pinfo, subtree)
-    local payload_len = pkt_length - DUML_HDR - 2
-    if payload_len < 3 then
+    local offset = 11
+    local payload = buffer(offset, pkt_length - offset - 2)
+    offset = 0
+
+    pinfo.cols.info:set("HDLnk Channel Plan Push")
+
+    if payload:len() < 3 then
         subtree:add_expert_info(PI_MALFORMED, PI_ERROR,
-            "HDLnk Channel Plan: payload too short (" .. payload_len .. " bytes)")
+            "HDLnk Channel Plan: payload too short (need at least 3 bytes)")
         return
     end
 
-    local p = buffer(DUML_HDR, payload_len)
+    -- 3-byte header
+    subtree:add_le(f.hd_link_ch_plan_sub_type,  payload(0, 1))
+    subtree:add_le(f.hd_link_ch_plan_bandwidth, payload(1, 1))
+    local n_item   = subtree:add_le(f.hd_link_ch_plan_n_active, payload(2, 1))
+    local n_active = payload(2, 1):uint()
+    offset = 3
 
-    subtree:add(fld.unk0, p(0, 1))
-    subtree:add(fld.unk1, p(1, 1))
-
-    local nactive = p(2, 1):uint()
-    if nactive > 32 then nactive = 32 end
-    local na_node = subtree:add(fld.num_active, p(2, 1))
-    na_node:set_text("Active Slots: " .. nactive)
-
-    for i = 0, nactive - 1 do
-        local off_freq  = FREQ_OFF  + i * 2
-        local off_idx   = IDX_OFF   + i
-        local off_qual  = QUAL_OFF  + i
-        local off_flags = FLAGS_OFF + i
-
-        if off_flags >= payload_len then break end
-
-        local stored_fid = (off_freq + 1 < payload_len) and p(off_freq, 2):le_uint() or 0
-        local slot_idx   = (off_idx   < payload_len) and p(off_idx,   1):uint() or 0
-        local slot_qual  = (off_qual  < payload_len) and p(off_qual,  1):uint() or 0
-        local slot_flags = (off_flags < payload_len) and p(off_flags, 1):uint() or 0
-
-        local freq_mhz = decode_ofdm_freq_mhz(stored_fid)
-        local band     = band_name(freq_mhz)
-        local freq_str
-        if freq_mhz then
-            freq_str = freq_mhz .. " MHz (" .. band .. ")"
-        else
-            freq_str = "unknown (raw=0x" .. string.format("%04x", stored_fid) .. ")"
-        end
-
-        local label = string.format("Ch[%02d] %-26s  q=%d%%  idx=%d  flags=0x%02x",
-            i, freq_str, slot_qual, slot_idx, slot_flags)
-
-        -- anchor channel row on the freq bytes for clean PDML byte range
-        local ch_node = subtree:add_le(fld.channel, p(off_freq, 2))
-        ch_node:set_text(label)
-
-        local freq_node = ch_node:add_le(fld.ch_freq, p(off_freq, 2))
-        freq_node:set_text("Freq: " .. freq_str)
-
-        if off_qual  < payload_len then
-            local qn = ch_node:add(fld.ch_quality, p(off_qual, 1))
-            qn:set_text("Quality: " .. slot_qual .. "%")
-        end
-        if off_idx   < payload_len then ch_node:add(fld.ch_index, p(off_idx,   1)) end
-        if off_flags < payload_len then ch_node:add(fld.ch_flags,  p(off_flags, 1)) end
+    if n_active > CH_PLAN_SLOT_COUNT then
+        n_item:add_expert_info(PI_PROTOCOL, PI_WARN,
+            string.format("n_active=%d exceeds max slot count %d; clamping",
+                n_active, CH_PLAN_SLOT_COUNT))
+        n_active = CH_PLAN_SLOT_COUNT
     end
 
-    pinfo.cols.info:append(string.format(" [HDLnk ChPlan %d slots]", nactive))
+    -- Minimum required payload for all 4 SoA arrays
+    if payload:len() < CH_PLAN_PAYLOAD_LEN then
+        subtree:add_expert_info(PI_MALFORMED, PI_ERROR,
+            string.format("HDLnk Channel Plan: payload %d bytes, expected %d",
+                payload:len(), CH_PLAN_PAYLOAD_LEN))
+        return
+    end
+
+    -- Per-channel subtrees.
+    -- Each active slot i has data spread across 4 non-contiguous arrays:
+    --   freq_id  at p[3  + i*2]   (uint16 LE)
+    --   index    at p[67 + i]     (uint8)
+    --   quality  at p[99 + i]     (uint8)
+    --   flags    at p[131 + i]    (uint8)
+    for i = 0, n_active - 1 do
+        local freq_off = 3   + i * 2
+        local idx_off  = 67  + i
+        local qual_off = 99  + i
+        local flag_off = 131 + i
+
+        local stored   = payload(freq_off, 2):le_uint()
+        local freq_mhz = decode_ofdm_freq_mhz(stored)
+        local qual_val = payload(qual_off, 1):uint()
+        local flag_val = payload(flag_off, 1):uint()
+
+        -- Build a concise label for the subtree header
+        local label
+        if freq_mhz then
+            local flags_str = ""
+            if bit32.band(flag_val, 0x01) ~= 0 then flags_str = flags_str .. " hop" end
+            if bit32.band(flag_val, 0x02) ~= 0 then flags_str = flags_str .. " DFS" end
+            label = string.format("Channel %d: %d MHz  quality=%d%%%s",
+                i + 1, freq_mhz, qual_val, flags_str)
+        else
+            label = string.format("Channel %d: id=0x%04X  quality=%d%%", i + 1, stored, qual_val)
+        end
+
+        local ch_tree = subtree:add(label)
+
+        -- Freq ID with decoded MHz appended
+        local freq_item = ch_tree:add_le(f.hd_link_ch_plan_freq_id, payload(freq_off, 2))
+        if freq_mhz then
+            freq_item:append_text(string.format("  →  %d MHz", freq_mhz))
+        end
+
+        ch_tree:add_le(f.hd_link_ch_plan_idx,     payload(idx_off,  1))
+        ch_tree:add_le(f.hd_link_ch_plan_quality,  payload(qual_off, 1))
+
+        local flag_tree = ch_tree:add_le(f.hd_link_ch_plan_flags, payload(flag_off, 1))
+        flag_tree:add_le(f.hd_link_ch_plan_flag_hop, payload(flag_off, 1))
+        flag_tree:add_le(f.hd_link_ch_plan_flag_dfs, payload(flag_off, 1))
+    end
+
+    -- Validate total payload length
+    if payload:len() ~= CH_PLAN_PAYLOAD_LEN then
+        subtree:add_expert_info(PI_PROTOCOL, PI_WARN,
+            string.format("HDLnk Channel Plan: payload %d bytes, expected %d",
+                payload:len(), CH_PLAN_PAYLOAD_LEN))
+    end
 end
 
--- Register into the global cmd dissect table populated by dji-dumlv1-proto.lua.
-if DJI_DUMLv1_CMD_DISSECT and DJI_DUMLv1_CMD_DISSECT[0x09] then
-    DJI_DUMLv1_CMD_DISSECT[0x09][0xf6] = hd_link_channel_plan_dissector
+-- ===========================================================================
+-- Registration
+-- ===========================================================================
+-- HD_LINK_UART_CMD_DISSECT is declared `local` in dji-dumlv1-proto.lua, so we
+-- reach it via the global DJI_DUMLv1_CMD_DISSECT[0x09] reference.
+
+if DJI_DUMLv1_CMD_DISSECT then
+    local hd_link_dissect = DJI_DUMLv1_CMD_DISSECT[0x09]
+    if hd_link_dissect then
+        hd_link_dissect[0xF6] = hd_link_channel_plan_dissector
+        print("DJI DUML v1 HD Link Extended Dissector loaded — 0xF6 (Channel Plan Push) registered")
+    else
+        print("Warning: DJI_DUMLv1_CMD_DISSECT[0x09] not found — HD Link ext not loaded")
+    end
+else
+    print("Warning: DJI_DUMLv1_CMD_DISSECT not found — HD Link ext not loaded")
 end
