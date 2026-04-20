@@ -69,6 +69,7 @@ GENERAL_UART_CMD_TEXT = {
     [0x62] = 'Get Product Newest Ver',
     [0x70] = 'Camera Debug Cmd', -- CameraDebugCmd
     [0x74] = 'Data Locker', -- DataLocker
+    [0x81] = 'Component Identity Push', -- 32-byte platform name + device type/index pairs
     [0xef] = 'Send Reserved Key',
     [0xf0] = 'Log Push',
     [0xf1] = 'Component Self Test State', -- The component is identified by sender field
@@ -979,6 +980,53 @@ local function general_compn_state_dissector(pkt_length, buffer, pinfo, subtree)
 
 end
 
+-- General - Component Identity Push - 0x81
+-- Broadcast by a component to announce its platform name and device address(es).
+-- Payload layout (push only, no request/response):
+--   [0..31]  platform_name  : null-padded ASCII string
+--   [32..39] addr_record_0  : {idx:u8, type:u8, reserved:6}
+--   [40..47] addr_record_1  : same structure (repeat)
+-- idx/type in each record match the sender field of the enclosing packet.
+
+f.general_compn_id_platform_name = ProtoField.string ("dji_dumlv1.general_compn_id_platform_name", "Platform Name", base.ASCII)
+f.general_compn_id_rec_idx       = ProtoField.uint8  ("dji_dumlv1.general_compn_id_rec_idx",  "Device Index", base.DEC)
+f.general_compn_id_rec_type      = ProtoField.uint8  ("dji_dumlv1.general_compn_id_rec_type", "Device Type",  base.DEC, DJI_DUMLv1_SRC_DEST_TEXT)
+f.general_compn_id_rec_reserved  = ProtoField.bytes  ("dji_dumlv1.general_compn_id_rec_reserved", "Reserved", base.SPACE)
+
+local function general_compn_id_add_addr_record(subtree, payload, base_offset, label)
+    local rec = subtree:add(DJI_DUMLv1_PROTO, payload(base_offset, 8), label)
+    rec:add_le(f.general_compn_id_rec_idx,      payload(base_offset + 0, 1))
+    rec:add_le(f.general_compn_id_rec_type,     payload(base_offset + 1, 1))
+    rec:add_le(f.general_compn_id_rec_reserved, payload(base_offset + 2, 6))
+end
+
+local function general_compn_id_dissector(pkt_length, buffer, pinfo, subtree)
+    local offset = 11
+    local payload = buffer(offset, pkt_length - offset - 2)
+    offset = 0
+
+    if payload:len() < 32 then
+        subtree:add_expert_info(PI_MALFORMED, PI_ERROR, "Component Identity Push: Payload too short")
+        return
+    end
+
+    -- Strip trailing nulls for display but present the full 32-byte field
+    local raw_name = payload(offset, 32):string()
+    local display_name = raw_name:match("^([^%z]*)") or ""
+    subtree:add(f.general_compn_id_platform_name, payload(offset, 32), display_name)
+    offset = offset + 32
+
+    if payload:len() >= offset + 8 then
+        general_compn_id_add_addr_record(subtree, payload, offset, "Address Record 0")
+        offset = offset + 8
+    end
+
+    if payload:len() >= offset + 8 then
+        general_compn_id_add_addr_record(subtree, payload, offset, "Address Record 1")
+        offset = offset + 8
+    end
+end
+
 -- General - Query Device Info - 0xff
 
 --f.general_query_device_info_unknown0 = ProtoField.none ("dji_dumlv1.general_query_device_info_unknown0", "Unknown0", base.NONE)
@@ -1012,6 +1060,7 @@ GENERAL_UART_CMD_DISSECT = {
     [0x42] = general_common_upgrade_status_dissector,
     [0x47] = general_power_state_dissector,
     [0x52] = general_set_gps_push_config_dissector,
+    [0x81] = general_compn_id_dissector,
     [0xf1] = general_compn_state_dissector,
     [0xff] = general_query_device_info_dissector,
 }

@@ -105,8 +105,14 @@ DJI_DUMLv1_CMD_SET_TEXT = {
     [21] = 'Glass',
     [22] = 'MavLink',
     [23] = 'Watch',
+    [24] = 'Module 4G',
+    [25] = 'Onboard SDK',
     [28] = 'RM',
-    [33] = 'MAX',
+    [31] = 'VFence',
+    [32] = 'NarrowBand',
+    [34] = 'FlyC2',
+    [60] = 'Payload SDK',
+    [238] = 'Recognize',
 }
 
 -- CMD name decode tables
@@ -543,6 +549,78 @@ local RTK_UART_CMD_TEXT = {
 local AUTO_UART_CMD_TEXT = {
 }
 
+local MODULE4G_UART_CMD_TEXT = {
+    [0x01] = '4G Open Video Camera',
+    [0x02] = '4G Close Video Camera',
+    [0x14] = '4G Card Status Get',
+    [0x15] = '4G Net APN Set',
+    [0x16] = '4G Signal Data Push',
+    [0x17] = '4G Operator Data Push',
+    [0x18] = '4G Net RTT Get',
+    [0x19] = '4G Card Info Get',
+    [0x21] = '4G Debug AT Cmd',
+}
+
+local VFENCE_UART_CMD_TEXT = {
+    [0x01] = 'VFence Data Set',
+    [0x02] = 'VFence Enabled Set',
+    [0x03] = 'VFence Data Delete',
+    [0x04] = 'VFence Data Get',
+}
+
+local NARROWBAND_UART_CMD_TEXT = {
+    [0x03] = 'NarrowBand State Info Push',
+    [0x04] = 'NarrowBand Device List Push',
+    [0x0a] = 'NarrowBand Exchange Mode',
+    [0x0d] = 'NarrowBand Base Info Config',
+}
+
+local GLASS_UART_CMD_TEXT = {
+    [0x05] = 'Glass Param Push',
+}
+
+local FLYC2_UART_CMD_TEXT = {
+    [0x0a] = 'FlyC2 RTK Abnormal Status',
+    [0x14] = 'FlyC2 Mass Center Cali Status',
+    [0x1d] = 'FlyC2 Waypoint Info Get',
+    [0x30] = 'FlyC2 Request Sales Strategy',
+    [0x48] = 'FlyC2 Auto Fly Show Fw Type Get',
+}
+
+local ONBOARDSDK_UART_CMD_TEXT = {
+    [0x01] = 'OnboardSDK External IO Set',
+    [0x02] = 'OnboardSDK Power Info Set',
+    [0x03] = 'OnboardSDK OSDK Enable Set',
+    [0x05] = 'OnboardSDK Mapped Gimbal Set',
+    [0x06] = 'OnboardSDK Mapped Gimbal Get',
+    [0x07] = 'OnboardSDK Gimbal Control Simultaneous Set',
+    [0x0c] = 'OnboardSDK PPS Enable Set',
+    [0x0f] = 'OnboardSDK Dual Gimbals Push',
+    [0x10] = 'OnboardSDK Accessory Info Push',
+    [0x12] = 'OnboardSDK Accessory Common Params Set',
+    [0x21] = 'OnboardSDK Vision Enable Set',
+    [0xe0] = 'OnboardSDK Total Link Debug',
+}
+
+local PAYLOADSDK_UART_CMD_TEXT = {
+    [0x18] = 'PayloadSDK Data From Payload Get',
+    [0x19] = 'PayloadSDK Data To Payload Send',
+    [0x1a] = 'PayloadSDK Float Hint Msg',
+    [0x1b] = 'PayloadSDK Widget Value Set',
+    [0x1c] = 'PayloadSDK Widget Status Push',
+    [0x1f] = 'PayloadSDK Turn On/Off Push',
+    [0x20] = 'PayloadSDK Push Switch',
+    [0x21] = 'PayloadSDK Widget Property Push',
+    [0x22] = 'PayloadSDK Camera Feature Get',
+    [0x24] = 'PayloadSDK Upload Limit Get',
+    [0x25] = 'PayloadSDK Upload Rate Set',
+    [0x1c] = 'PayloadSDK Sync Date',
+}
+
+local RECOGNIZE_UART_CMD_TEXT = {
+    [0x01] = 'Recognize DJI GO Support Push',
+}
+
 local ADSB_UART_CMD_TEXT = {
     [0x02] = 'Push Data Get',
     [0x08] = 'Push Warning Get',
@@ -582,13 +660,21 @@ DJI_DUMLv1_CMD_TEXT = {
     [0x0f] = RTK_UART_CMD_TEXT,
     [0x10] = AUTO_UART_CMD_TEXT,
     [0x11] = ADSB_UART_CMD_TEXT,
+    [0x15] = GLASS_UART_CMD_TEXT,
+    [0x18] = MODULE4G_UART_CMD_TEXT,
+    [0x19] = ONBOARDSDK_UART_CMD_TEXT,
+    [0x1f] = VFENCE_UART_CMD_TEXT,
+    [0x20] = NARROWBAND_UART_CMD_TEXT,
+    [0x22] = FLYC2_UART_CMD_TEXT,
+    [0x3c] = PAYLOADSDK_UART_CMD_TEXT,
+    [0xee] = RECOGNIZE_UART_CMD_TEXT,
 }
 
 local function set_info(cmd, pinfo, valuestring)
     if tostring(pinfo.cols.info) ~= "" then
         pinfo.cols.info:append(", ")
     end
-    if valuestring[cmd] == nil then
+    if valuestring == nil or valuestring[cmd] == nil then
         pinfo.cols.info:append(string.format("%s (0x%02X)", "Unknown", cmd))
     else
         pinfo.cols.info:append(valuestring[cmd])
