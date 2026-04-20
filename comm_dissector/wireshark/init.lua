@@ -10,12 +10,41 @@ disable_lua = false
 -- Windows example:
 --   local dji_script_path = "C:\\path\\to\\scripts\\"
 
-local dji_script_path = ""
+-- Auto-detect the real path of this script, resolving symlinks via package.
+-- Falls back to the symlink location (unreliable) or CWD if detection fails.
+local function script_dir()
+    -- Try to get the real source path via debug info
+    local src = debug.getinfo(1, 'S').source
+    if src:sub(1,1) == '@' then
+        local path = src:sub(2)
+        -- Resolve symlink on POSIX
+        local resolved = io.popen('readlink -f "' .. path .. '" 2>/dev/null'):read('*l')
+        if resolved and resolved ~= '' then
+            return resolved:match("^(.+[\\/])") or ""
+        end
+        return path:match("^(.+[\\/])") or ""
+    end
+    return ""
+end
 
--- If you have not changed the line above, Lua will look for the scripts
--- in the current working directory and probably not find them.
+local dji_script_path = script_dir()
+
+local function dofile_if_exists(path)
+    local f = io.open(path, 'r')
+    if f then
+        f:close()
+        dofile(path)
+    end
+end
 
 dofile(dji_script_path .. 'dji-dumlv1-proto.lua')
+
+-- Extended DUML dissectors with additional command parsing
+dofile_if_exists(dji_script_path .. 'dji-dumlv1-flyc-ext.lua')
+dofile_if_exists(dji_script_path .. 'dji-dumlv1-camera-ext.lua')
+dofile_if_exists(dji_script_path .. 'dji-dumlv1-gimbal-ext.lua')
+dofile_if_exists(dji_script_path .. 'dji-dumlv1-battery-ext.lua')
+dofile_if_exists(dji_script_path .. 'dji-dumlv1-hdlink-ext.lua')
 
 dofile(dji_script_path .. 'dji-p3-flyrec-proto.lua')
 dofile(dji_script_path .. 'dji-p3-batt-proto.lua')

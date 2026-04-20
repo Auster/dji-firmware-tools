@@ -820,9 +820,9 @@ f.flyc_osd_general_relative_height = ProtoField.int16 ("dji_dumlv1.flyc_osd_gene
 f.flyc_osd_general_vgx = ProtoField.int16 ("dji_dumlv1.flyc_osd_general_vgx", "Vgx speed", base.DEC, nil, nil, "0.1m/s, to ground")
 f.flyc_osd_general_vgy = ProtoField.int16 ("dji_dumlv1.flyc_osd_general_vgy", "Vgy speed", base.DEC, nil, nil, "0.1m/s, to ground")
 f.flyc_osd_general_vgz = ProtoField.int16 ("dji_dumlv1.flyc_osd_general_vgz", "Vgz speed", base.DEC, nil, nil, "0.1m/s, to ground")
-f.flyc_osd_general_pitch = ProtoField.int16 ("dji_dumlv1.flyc_osd_general_pitch", "Pitch", base.DEC, nil, nil, "0.1")
-f.flyc_osd_general_roll = ProtoField.int16 ("dji_dumlv1.flyc_osd_general_roll", "Roll", base.DEC)
-f.flyc_osd_general_yaw = ProtoField.int16 ("dji_dumlv1.flyc_osd_general_yaw", "Yaw", base.DEC)
+f.flyc_osd_general_pitch = ProtoField.int16 ("dji_dumlv1.flyc_osd_general_pitch", "Pitch", base.DEC, nil, nil, "Raw value; display = value/10 deg")
+f.flyc_osd_general_roll = ProtoField.int16 ("dji_dumlv1.flyc_osd_general_roll", "Roll", base.DEC, nil, nil, "Raw value; display = value/10 deg")
+f.flyc_osd_general_yaw = ProtoField.int16 ("dji_dumlv1.flyc_osd_general_yaw", "Yaw", base.DEC, nil, nil, "Raw value; display = value/10 deg")
 f.flyc_osd_general_ctrl_info = ProtoField.uint8 ("dji_dumlv1.flyc_osd_general_ctrl_info", "Control Info", base.HEX)
   f.flyc_osd_general_flyc_state = ProtoField.uint8 ("dji_dumlv1.flyc_osd_general_flyc_state", "FC State", base.HEX, enums.FLYC_OSD_GENERAL_FLYC_STATE_ENUM, 0x7F, "Flight Controller state1")
   f.flyc_osd_general_no_rc_state = ProtoField.uint8 ("dji_dumlv1.flyc_osd_general_no_rc_state", "No RC State Received", base.HEX, nil, 0x80, nil)
@@ -902,13 +902,16 @@ local function flyc_osd_general_dissector(pkt_length, buffer, pinfo, subtree)
     subtree:add_le (f.flyc_osd_general_vgz, payload(offset, 2))
     offset = offset + 2
 
-    subtree:add_le (f.flyc_osd_general_pitch, payload(offset, 2))
+    local pitch_val = payload(offset, 2):le_int()
+    subtree:add_le(f.flyc_osd_general_pitch, payload(offset, 2)):set_text(string.format("Pitch: %.1f deg", pitch_val / 10.0))
     offset = offset + 2
 
-    subtree:add_le (f.flyc_osd_general_roll, payload(offset, 2))
+    local roll_val = payload(offset, 2):le_int()
+    subtree:add_le(f.flyc_osd_general_roll, payload(offset, 2)):set_text(string.format("Roll: %.1f deg", roll_val / 10.0))
     offset = offset + 2
 
-    subtree:add_le (f.flyc_osd_general_yaw, payload(offset, 2))
+    local yaw_val = payload(offset, 2):le_int()
+    subtree:add_le(f.flyc_osd_general_yaw, payload(offset, 2)):set_text(string.format("Yaw: %.1f deg", yaw_val / 10.0))
     offset = offset + 2
 
     subtree:add_le (f.flyc_osd_general_ctrl_info, payload(offset, 1))
