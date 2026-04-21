@@ -1028,16 +1028,36 @@ local function general_compn_id_dissector(pkt_length, buffer, pinfo, subtree)
 end
 
 -- General - Query Device Info - 0xff
+-- Response payload: some components prefix a result byte (value < 0x20) before the info string;
+-- others (e.g. Flight Controller) omit it and start directly with printable ASCII.
 
---f.general_query_device_info_unknown0 = ProtoField.none ("dji_dumlv1.general_query_device_info_unknown0", "Unknown0", base.NONE)
+f.general_query_device_info_result = ProtoField.uint8 ("dji_dumlv1.general_query_device_info_result", "Result", base.HEX, nil, nil, "Command result/status; 0x00 = success. Present when first byte is not printable ASCII.")
+f.general_query_device_info_info_str = ProtoField.string ("dji_dumlv1.general_query_device_info_info_str", "Device Info String", base.NONE, nil, nil, "Build info string: product, firmware type, build date and time/number separated by '|'")
 
 local function general_query_device_info_dissector(pkt_length, buffer, pinfo, subtree)
+    local pack_type = bit32.rshift(bit32.band(buffer(8,1):uint(), 0x80), 7)
     local offset = 11
     local payload = buffer(offset, pkt_length - offset - 2)
     offset = 0
 
-    if (offset ~= 0) then subtree:add_expert_info(PI_MALFORMED,PI_ERROR,"Query Device Info: Offset does not match - internal inconsistency") end
-    if (payload:len() ~= offset) then subtree:add_expert_info(PI_PROTOCOL,PI_WARN,"Query Device Info: Payload size different than expected") end
+    if pack_type == 0 then -- Request
+        -- no payload expected
+        if (payload:len() ~= offset) then subtree:add_expert_info(PI_PROTOCOL,PI_WARN,"Query Device Info: Payload size different than expected") end
+    else -- Response
+        if payload:len() > 0 then
+            -- Detect optional result byte: components that include it use values < 0x20 (not printable ASCII).
+            -- Components that omit it start directly with the info string (first char >= 0x20).
+            if payload(0, 1):uint() < 0x20 then
+                subtree:add_le (f.general_query_device_info_result, payload(offset, 1))
+                offset = offset + 1
+            end
+            if offset < payload:len() then
+                subtree:add_le (f.general_query_device_info_info_str, payload(offset, payload:len() - offset))
+                offset = payload:len()
+            end
+        end
+        if (payload:len() ~= offset) then subtree:add_expert_info(PI_PROTOCOL,PI_WARN,"Query Device Info: Payload size different than expected") end
+    end
 end
 
 GENERAL_UART_CMD_DISSECT = {

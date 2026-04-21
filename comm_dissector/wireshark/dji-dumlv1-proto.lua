@@ -3363,7 +3363,10 @@ function dji_dumlv1_main_dissector(buffer, pinfo, subtree)
             local dissector = dissector_group[cmd]
 
             if dissector ~= nil then
-                dissector(pkt_length, buffer, pinfo, payload_tree)
+                local ok, err = pcall(dissector, pkt_length, buffer, pinfo, payload_tree)
+                if not ok then
+                    payload_tree:add_expert_info(PI_UNDECODED, PI_NOTE, "sub-dissector error: " .. tostring(err))
+                end
             end
 
         end
