@@ -598,6 +598,94 @@ local function flyc_limit_params_set_dissector(pkt_length, buffer, pinfo, subtre
     end
 end
 
+-- Remote ID / Privacy Control (0xDA) — CIA Jeep Doors
+-- Reference: https://github.com/MAVProxyUser/CIAJeepDoors
+-- Src: DEVICE_PC (0x0A) id=1   Dst: DEVICE_FLIGHT_CONTROLLER (0x03) id=6
+-- GET_PRIVACY quirk: dst id=0 (not id=6)
+-- SET_PRIVACY payload: [0x05][val][0x00][0x00][0x00]  (4-byte LE uint32)
+-- M300 workaround:     write 0x40 first, then target value
+
+enums.FLYC_REMOTE_ID_SUB_CMD_ENUM = {
+    [0x01] = 'SET_FLIGHT_PURPOSE',
+    [0x02] = 'GET_FLIGHT_PURPOSE',
+    [0x03] = 'SET_DRONE_ID',
+    [0x04] = 'GET_DRONE_ID',
+    [0x05] = 'SET_PRIVACY',
+    [0x06] = 'GET_PRIVACY',
+}
+
+f.flyc_remote_id_sub_cmd        = ProtoField.uint8  ("dji_dumlv1.flyc_remote_id_sub_cmd",         "Remote ID Sub-Command",  base.HEX, enums.FLYC_REMOTE_ID_SUB_CMD_ENUM)
+f.flyc_remote_id_privacy_raw    = ProtoField.uint32 ("dji_dumlv1.flyc_remote_id_privacy_raw",      "Privacy Flags (LE u32)", base.HEX)
+f.flyc_remote_id_priv_serial    = ProtoField.bool   ("dji_dumlv1.flyc_remote_id_priv_serial",      "Serial Number",          8, {"Broadcasting", "Hidden"}, 0x01)
+f.flyc_remote_id_priv_state     = ProtoField.bool   ("dji_dumlv1.flyc_remote_id_priv_state",       "State (pos/roll/IMU)",   8, {"Broadcasting", "Hidden"}, 0x02)
+f.flyc_remote_id_priv_rth       = ProtoField.bool   ("dji_dumlv1.flyc_remote_id_priv_rth",         "Return-to-Home pos",     8, {"Broadcasting", "Hidden"}, 0x04)
+f.flyc_remote_id_priv_droneid   = ProtoField.bool   ("dji_dumlv1.flyc_remote_id_priv_droneid",     "Drone ID string",        8, {"Broadcasting", "Hidden"}, 0x08)
+f.flyc_remote_id_priv_purpose   = ProtoField.bool   ("dji_dumlv1.flyc_remote_id_priv_purpose",     "Flight Purpose string",  8, {"Broadcasting", "Hidden"}, 0x10)
+f.flyc_remote_id_priv_uuid      = ProtoField.bool   ("dji_dumlv1.flyc_remote_id_priv_uuid",        "UUID",                   8, {"Broadcasting", "Hidden"}, 0x20)
+f.flyc_remote_id_priv_pilot     = ProtoField.bool   ("dji_dumlv1.flyc_remote_id_priv_pilot",       "Pilot Position",         8, {"Broadcasting", "Hidden"}, 0x40)
+f.flyc_remote_id_priv_bit7      = ProtoField.bool   ("dji_dumlv1.flyc_remote_id_priv_bit7",        "Unknown (bit 7)",        8, {"Broadcasting", "Hidden"}, 0x80)
+f.flyc_remote_id_drone_id       = ProtoField.string ("dji_dumlv1.flyc_remote_id_drone_id",         "Drone ID")
+f.flyc_remote_id_flight_purpose = ProtoField.string ("dji_dumlv1.flyc_remote_id_flight_purpose",   "Flight Purpose")
+
+local function flyc_remote_id_dissector(pkt_length, buffer, pinfo, subtree)
+    local offset = 11
+    local payload = buffer(offset, pkt_length - offset - 2)
+    offset = 0
+
+    if payload:len() < 1 then return end
+
+    local sub = payload(offset, 1):uint()
+    subtree:add_le(f.flyc_remote_id_sub_cmd, payload(offset, 1))
+    offset = offset + 1
+
+    if (sub == 0x05 or sub == 0x06) then
+        -- SET_PRIVACY / GET_PRIVACY response: [sub][val][0x00][0x00][0x00]
+        if payload:len() >= offset + 4 then
+            local priv_tree = subtree:add_le(f.flyc_remote_id_privacy_raw, payload(offset, 4))
+            -- named bits are in the low byte (byte 0 of the LE uint32)
+            priv_tree:add(f.flyc_remote_id_priv_serial,  payload(offset, 1))
+            priv_tree:add(f.flyc_remote_id_priv_state,   payload(offset, 1))
+            priv_tree:add(f.flyc_remote_id_priv_rth,     payload(offset, 1))
+            priv_tree:add(f.flyc_remote_id_priv_droneid, payload(offset, 1))
+            priv_tree:add(f.flyc_remote_id_priv_purpose, payload(offset, 1))
+            priv_tree:add(f.flyc_remote_id_priv_uuid,    payload(offset, 1))
+            priv_tree:add(f.flyc_remote_id_priv_pilot,   payload(offset, 1))
+            priv_tree:add(f.flyc_remote_id_priv_bit7,    payload(offset, 1))
+            offset = offset + 4
+        elseif payload:len() >= offset + 1 then
+            -- short form (1-byte value, seen on some FW versions)
+            local priv_tree = subtree:add_le(f.flyc_remote_id_privacy_raw, payload(offset, 1))
+            priv_tree:add(f.flyc_remote_id_priv_serial,  payload(offset, 1))
+            priv_tree:add(f.flyc_remote_id_priv_state,   payload(offset, 1))
+            priv_tree:add(f.flyc_remote_id_priv_rth,     payload(offset, 1))
+            priv_tree:add(f.flyc_remote_id_priv_droneid, payload(offset, 1))
+            priv_tree:add(f.flyc_remote_id_priv_purpose, payload(offset, 1))
+            priv_tree:add(f.flyc_remote_id_priv_uuid,    payload(offset, 1))
+            priv_tree:add(f.flyc_remote_id_priv_pilot,   payload(offset, 1))
+            priv_tree:add(f.flyc_remote_id_priv_bit7,    payload(offset, 1))
+            offset = offset + 1
+        end
+    elseif (sub == 0x03 or sub == 0x04) then
+        -- SET_DRONE_ID / GET_DRONE_ID: remainder is ASCII (may be null-padded)
+        local rem = payload:len() - offset
+        if rem > 0 then
+            subtree:add(f.flyc_remote_id_drone_id, payload(offset, rem))
+            offset = offset + rem
+        end
+    elseif (sub == 0x01 or sub == 0x02) then
+        -- SET_FLIGHT_PURPOSE / GET_FLIGHT_PURPOSE
+        local rem = payload:len() - offset
+        if rem > 0 then
+            subtree:add(f.flyc_remote_id_flight_purpose, payload(offset, rem))
+            offset = offset + rem
+        end
+    end
+
+    if (payload:len() ~= offset) then
+        subtree:add_expert_info(PI_PROTOCOL, PI_NOTE, "Remote ID: trailing bytes after decoded fields")
+    end
+end
+
 -- Battery Voltage Alarm Set Dissector (0x2F)
 local function flyc_batt_alarm_set_dissector(pkt_length, buffer, pinfo, subtree)
     local offset = 11
@@ -647,7 +735,10 @@ if FLYC_UART_CMD_DISSECT then
     FLYC_UART_CMD_DISSECT[0x2D] = flyc_limit_params_set_dissector
     FLYC_UART_CMD_DISSECT[0x2F] = flyc_batt_alarm_set_dissector
 
-    print("DJI DUMLv1 FlyC Extension: Added 16 new dissectors")
+    -- Remote ID / Privacy Control (CIA Jeep Doors)
+    FLYC_UART_CMD_DISSECT[0xda] = flyc_remote_id_dissector
+
+    print("DJI DUMLv1 FlyC Extension: Added 17 new dissectors")
 else
     print("Warning: FLYC_UART_CMD_DISSECT not found - FlyC extension not loaded")
 end

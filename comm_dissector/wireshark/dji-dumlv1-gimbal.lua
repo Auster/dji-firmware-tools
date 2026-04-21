@@ -289,7 +289,7 @@ end
 -- Description: Receives a value from packet and shifts internal roll adjustment by it. The adjustment is not saved into persistent storage.
 -- Supported in: P3X_FW_V01.11.0030_m0400
 
-f.gimbal_adjust_roll_adjustment_val = ProtoField.int8 ("dji_dumlv1.gimbal_adjust_roll_adjustment_val", "Adjustment Value", base.DEC, nil, nil)
+f.gimbal_adjust_roll_adjustment_val = ProtoField.int8 ("dji_dumlv1.gimbal_adjust_roll_adjustment_val", "Adjustment Value", base.DEC, nil, nil, "Accepted values -127..+127 degrees")
 
 local function gimbal_adjust_roll_dissector(pkt_length, buffer, pinfo, subtree)
     local offset = 11
@@ -518,8 +518,98 @@ end
 -- Description: Allows to set new values of gimbal user params. Index and size of each param must be provided. On Ph3, also resets values from packet 0x20 to 1.
 -- Supported in: P3X_FW_V01.11.0030_m0400
 
+-- Param index enum - source: duml_gimbal_parameters_t in DUML_CMD.h
+enums.GIMBAL_USER_PARAM_IDX_ENUM = {
+    [0x00] = 'table_choice',
+    [0x01] = 'silent_mode',
+    [0x02] = 'yaw_speed',
+    [0x03] = 'pitch_speed',
+    [0x04] = 'yaw_deadband',
+    [0x05] = 'pitch_deadband',
+    [0x06] = 'yaw_expo',
+    [0x07] = 'pitch_expo',
+    [0x08] = 'yaw_time_expo',
+    [0x09] = 'pitch_time_expo',
+    [0x0A] = 'pitch_exp',
+    [0x0B] = 'yaw_follow_exp',
+    [0x0C] = 'roll_speed',
+    [0x0D] = 'roll_deadband',
+    [0x0E] = 'yaw_accel',
+    [0x0F] = 'pitch_accel',
+    [0x10] = 'roll_accel',
+    [0x11] = 'yaw_smooth_track',
+    [0x12] = 'pitch_smooth_track',
+    [0x13] = 'roll_smooth_track',
+    [0x14] = 'yaw_push_enable',
+    [0x15] = 'pitch_push_enable',
+    [0x16] = 'roll_push_enable',
+    [0x17] = 'yaw_fine_tuning',
+    [0x18] = 'pitch_fine_tuning',
+    [0x19] = 'roll_angle_adjustment',
+    [0x1A] = 'yaw_dead_zone',
+    [0x1B] = 'pitch_dead_zone',
+    [0x1C] = 'yaw_swap_enable',
+    [0x1D] = 'pitch_swap_enable',
+    [0x1E] = 'yaw_swap_speed',
+    [0x1F] = 'pitch_swap_speed',
+    [0x20] = 'yaw_swap_range',
+    [0x21] = 'pitch_swap_range',
+    [0x22] = 'enable_camera_up_side_down',
+    [0x23] = 'shut_down_motor',
+    [0x24] = 'system_calc',
+    [0x25] = 'balance_test',
+    [0x27] = 'roll_control_smoothing',
+    [0x28] = 'roll_control_dead_band',
+    [0x29] = 'yaw_max_speed',
+    [0x2A] = 'pitch_max_speed',
+    [0x2B] = 'roll_max_speed',
+    [0x2C] = 'follow_smooth',
+    [0x2D] = 'gimbal_config_name',
+    [0x2E] = 'speed_control_via_fov',
+    [0x2F] = 'ronin2_max_angle_pitch',
+    [0x30] = 'ronin2_min_angle_pitch',
+    [0x31] = 'ronin2_max_angle_yaw',
+    [0x32] = 'ronin2_min_angle_yaw',
+    [0x33] = 'ronin2_max_angle_roll',
+    [0x34] = 'ronin2_min_angle_roll',
+    [0x35] = 'ronin2_channel_1',
+    [0x36] = 'ronin2_channel_2',
+    [0x37] = 'ronin2_channel_3',
+    [0x38] = 'ronin2_channel_4',
+    [0x39] = 'ronin2_channel_5',
+    [0x3A] = 'ronin2_channel_6',
+    [0x3B] = 'ronin_block_up_time',
+    [0x3C] = 'ronin_gimbal_hold_type',
+    [0x3D] = 'ronin_gimbal_test_endpoint',
+    [0x3E] = 'ronin_gimbal_work_mode',
+    [0x3F] = 'ronin_auto_tune_enabled',
+    [0x40] = 'ronin_auto_tune_percent',
+    [0x41] = 'ronin_follow_speed_mode',
+    [0x42] = 'ronin_follow_dead_zone_mode',
+    [0x43] = 'ronin_rc_speed_mode',
+    [0x44] = 'ronin_rc_dead_zone_mode',
+    [0x45] = 'ronin_rc_smooth_mode',
+    [0x46] = 'ronin_control_param_mode',
+    [0x47] = 'ronin_follow_acce_mode',
+    [0x48] = 'gimbal_input_source',
+    [0x4C] = 'gimbal_create_smooth_roll',
+    [0x4D] = 'gimbal_create_smooth_pitch',
+    [0x4E] = 'gimbal_create_smooth_yaw',
+    [0x4F] = 'gimbal_create_max_speed_roll',
+    [0x50] = 'gimbal_create_max_speed_pitch',
+    [0x51] = 'gimbal_create_max_speed_yaw',
+    [0x69] = 'ronin_gimbal_auto_movement',
+    [0x6B] = 'ronin_fold_mode',
+    [0x75] = 'ronin_tracking_speed',
+    [0x7A] = 'ronin_tracking_orientation_vertical',
+    [0x84] = 'ronin_custom_follow_setting',
+    [0xF0] = 'gimbal_config_name_0',
+    [0xF1] = 'gimbal_config_name_1',
+    [0xF2] = 'gimbal_config_name_2',
+}
+
 f.gimbal_user_params_set_resp_status = ProtoField.uint8 ("dji_dumlv1.gimbal_user_params_set_resp_status", "Status", base.DEC, nil, nil, "Request processing status; non-zero value means error.")
-f.gimbal_user_params_set_param_idx = ProtoField.int8 ("dji_dumlv1.gimbal_user_params_set_param_idx", "Param Idx", base.DEC, nil, nil)
+f.gimbal_user_params_set_param_idx = ProtoField.uint8 ("dji_dumlv1.gimbal_user_params_set_param_idx", "Param Idx", base.DEC, enums.GIMBAL_USER_PARAM_IDX_ENUM, nil)
 f.gimbal_user_params_set_param_size = ProtoField.uint8 ("dji_dumlv1.gimbal_user_params_set_param_size", "Param Size", base.DEC, nil, nil)
 f.gimbal_user_params_set_param_value = ProtoField.bytes ("dji_dumlv1.gimbal_user_params_set_param_value", "Param Value", base.SPACE, nil, nil)
 
@@ -574,11 +664,14 @@ end
 -- On Ph3, there are 12 gimbal user params defined in firmware.
 -- Supported in: P3X_FW_V01.11.0030_m0400
 
-f.gimbal_user_params_get_param_idx = ProtoField.int8 ("dji_dumlv1.gimbal_user_params_get_param_idx", "Param Idx", base.DEC, nil, nil)
+f.gimbal_user_params_get_param_idx = ProtoField.uint8 ("dji_dumlv1.gimbal_user_params_get_param_idx", "Param Idx", base.DEC, enums.GIMBAL_USER_PARAM_IDX_ENUM, nil)
 f.gimbal_user_params_get_resp_status = ProtoField.uint8 ("dji_dumlv1.gimbal_user_params_get_resp_status", "Status", base.DEC, nil, nil, "Request processing status; non-zero value means error.")
 f.gimbal_user_params_get_param_size = ProtoField.uint8 ("dji_dumlv1.gimbal_user_params_get_param_size", "Param Size", base.DEC, nil, nil)
-f.gimbal_user_params_get_param_value = ProtoField.bytes ("dji_dumlv1.gimbal_user_params_get_param_value", "Param Value", base.SPACE, nil, nil)
-f.gimbal_user_params_get_param_err = ProtoField.int8 ("dji_dumlv1.gimbal_user_params_get_param_err", "Param Retrieval Error", base.DEC, nil, nil)
+f.gimbal_user_params_get_param_value_uint8  = ProtoField.uint8  ("dji_dumlv1.gimbal_user_params_get_param_value", "Param Value", base.DEC, nil, nil)
+f.gimbal_user_params_get_param_value_uint16 = ProtoField.uint16 ("dji_dumlv1.gimbal_user_params_get_param_value_uint16", "Param Value", base.DEC, nil, nil)
+f.gimbal_user_params_get_param_value_uint32 = ProtoField.uint32 ("dji_dumlv1.gimbal_user_params_get_param_value_uint32", "Param Value", base.DEC, nil, nil)
+f.gimbal_user_params_get_param_value_uint64 = ProtoField.uint64 ("dji_dumlv1.gimbal_user_params_get_param_value_uint64", "Param Value", base.DEC, nil, nil)
+f.gimbal_user_params_get_param_err = ProtoField.uint8 ("dji_dumlv1.gimbal_user_params_get_param_err", "Param Retrieval Error", base.HEX, nil, nil)
 
 local function gimbal_user_params_get_dissector(pkt_length, buffer, pinfo, subtree)
     local pack_type = bit32.rshift(bit32.band(buffer(8,1):uint(), 0x80), 7)
@@ -607,8 +700,8 @@ local function gimbal_user_params_get_dissector(pkt_length, buffer, pinfo, subtr
         while offset < payload:len() do
         i = i + 1
 
-            local param_idx = payload(offset, 1):int()
-            if param_idx >= 0 then -- Proper index means parameter retrieved successfully
+            local param_idx = payload(offset, 1):uint()
+            if param_idx ~= 0xff then -- 0xFF sentinel means retrieval error for this param
 
                 subtree:add_le (f.gimbal_user_params_get_param_idx, payload(offset, 1))
                 offset = offset + 1
@@ -618,20 +711,20 @@ local function gimbal_user_params_get_dissector(pkt_length, buffer, pinfo, subtr
                 offset = offset + 1
 
                 if param_size == 8 then
-                    subtree:add_le (f.gimbal_user_params_get_param_value, payload(offset, 8))
+                    subtree:add_le (f.gimbal_user_params_get_param_value_uint64, payload(offset, 8))
                     offset = offset + 8
                 elseif param_size == 4 then
-                    subtree:add_le (f.gimbal_user_params_get_param_value, payload(offset, 4))
+                    subtree:add_le (f.gimbal_user_params_get_param_value_uint32, payload(offset, 4))
                     offset = offset + 4
                 elseif param_size == 2 then
-                    subtree:add_le (f.gimbal_user_params_get_param_value, payload(offset, 2))
+                    subtree:add_le (f.gimbal_user_params_get_param_value_uint16, payload(offset, 2))
                     offset = offset + 2
                 else
-                    subtree:add_le (f.gimbal_user_params_get_param_value, payload(offset, 1))
+                    subtree:add_le (f.gimbal_user_params_get_param_value_uint8, payload(offset, 1))
                     offset = offset + 1
                 end
 
-            else -- If index below 0, then it means error code and skip to next param
+            else -- 0xFF index means retrieval error; skip to next param
 
                 subtree:add_le (f.gimbal_user_params_get_param_err, payload(offset, 1))
                 offset = offset + 1
