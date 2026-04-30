@@ -466,6 +466,7 @@ enums.COMMON_FILETRANS_GENERAL_TRANS_PHASE_ENUM = {
     [1]="Begin transfer",
     [2]="Data part",
     [3]="Finish transfer",
+    [4]="Data part (code/alternate)",  -- observed in zv902; same layout as phase 2
 }
 
 f.general_filetrans_general_trans_phase = ProtoField.uint8 ("dji_dumlv1.general_filetrans_general_trans_phase", "Transfer Phase", base.DEC, enums.COMMON_FILETRANS_GENERAL_TRANS_PHASE_ENUM, nil, nil)
@@ -475,6 +476,8 @@ f.general_filetrans_general_trans_unknown1 = ProtoField.bytes ("dji_dumlv1.gener
 f.general_filetrans_general_trans_data = ProtoField.bytes ("dji_dumlv1.general_filetrans_general_trans_data", "Data", base.SPACE)
 f.general_filetrans_general_trans_fname_len = ProtoField.uint8 ("dji_dumlv1.general_filetrans_general_trans_fname", "File Name Length", base.DEC)
 f.general_filetrans_general_trans_fname = ProtoField.string ("dji_dumlv1.general_filetrans_general_trans_fname", "File Name", base.NONE, nil, nil)
+
+f.general_filetrans_general_trans_begin_trailing = ProtoField.bytes ("dji_dumlv1.general_filetrans_general_trans_begin_trailing", "Trailing Bytes", base.SPACE, nil, nil, "Extra bytes after filename in Begin transfer; observed in zv902, purpose unknown")
 
 f.general_filetrans_general_trans_resp_phase = ProtoField.uint8 ("dji_dumlv1.general_filetrans_general_trans_resp_phase", "Response for Transfer Phase", base.DEC, enums.COMMON_FILETRANS_GENERAL_TRANS_PHASE_ENUM, nil, nil)
 f.general_filetrans_general_trans_status = ProtoField.uint8 ("dji_dumlv1.general_filetrans_general_trans_status", "Status", base.HEX)
@@ -505,6 +508,11 @@ local function general_filetrans_general_trans_dissector(pkt_length, buffer, pin
             subtree:add_le (f.general_filetrans_general_trans_fname, payload(offset, fname_len))
             offset = offset + fname_len
 
+            if payload:len() > offset then
+                subtree:add_le (f.general_filetrans_general_trans_begin_trailing, payload(offset, payload:len() - offset))
+                offset = payload:len()
+            end
+
         elseif phase == 2 then
 
             subtree:add_le (f.general_filetrans_general_trans_partno, payload(offset, 4))
@@ -519,6 +527,16 @@ local function general_filetrans_general_trans_dissector(pkt_length, buffer, pin
             subtree:add_le (f.general_filetrans_general_trans_unknown1, payload(offset, 16))
             offset = offset + 16
 
+        elseif phase == 4 then
+
+            -- Same layout as phase 2; observed in zv902, carrying ARM Thumb-2 code.
+            subtree:add_le (f.general_filetrans_general_trans_partno, payload(offset, 4))
+            offset = offset + 4
+
+            local data_len = payload:len() - offset
+            subtree:add_le (f.general_filetrans_general_trans_data, payload(offset, data_len))
+            offset = offset + data_len
+
         end
 
         --if (offset ~= 2) then subtree:add_expert_info(PI_MALFORMED,PI_ERROR,"FileTrans General Trans: Offset does not match - internal inconsistency") end
@@ -531,8 +549,8 @@ local function general_filetrans_general_trans_dissector(pkt_length, buffer, pin
             subtree:add_le (f.general_filetrans_general_trans_status, payload(offset, 1))
             offset = offset + 1
 
-            subtree:add_le (f.general_filetrans_general_trans_res_unknown0, payload(offset, 5))
-            offset = offset + 5
+            subtree:add_le (f.general_filetrans_general_trans_res_unknown0, payload(offset, payload:len() - offset))
+            offset = payload:len()
 
         elseif (payload:len() >= 5) then
 
@@ -553,7 +571,7 @@ local function general_filetrans_general_trans_dissector(pkt_length, buffer, pin
 
         end
 
-        if (offset ~= 1) and (offset ~= 5) and (offset ~= 6) then subtree:add_expert_info(PI_MALFORMED,PI_ERROR,"FileTrans General Trans: Offset does not match - internal inconsistency") end
+        if (offset ~= 1) and (offset ~= 5) and (offset ~= payload:len()) then subtree:add_expert_info(PI_MALFORMED,PI_ERROR,"FileTrans General Trans: Offset does not match - internal inconsistency") end
     end
 
     if (payload:len() ~= offset) then subtree:add_expert_info(PI_PROTOCOL,PI_WARN,"FileTrans General Trans: Payload size different than expected") end
