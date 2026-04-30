@@ -16,6 +16,7 @@ build/
 .venv/
 venv/
 env/
+.env
 
 # IDE
 .idea/
@@ -27,3 +28,6 @@ env/
 # Project-specific
 *.pcap
 *.pcapng
+
+CLAUDE.md
+dji_bin/
