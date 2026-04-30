@@ -3396,46 +3396,130 @@ function DJI_DUMLv1_PROTO.dissector (buffer, pinfo, tree)
 
 end
 
--- Heuritstic version, checks if packet is correct
-local function heuristic_dissector(buffer, pinfo, tree)
+-- Per-conversation state for USB bulk reassembly.
+-- usb_partial: conv_key -> ByteArray of bytes not yet forming a complete DUML packet.
+-- usb_frame_ba: frame_num -> ByteArray of the combined data seen at that frame (used on re-dissection passes).
+-- Both are reset in DJI_DUMLv1_PROTO.init() on each Wireshark reload/re-analysis.
+local usb_partial = {}
+local usb_frame_ba = {}
 
-    -- The Pkt start byte
+local function usb_conv_key(pinfo)
+    return tostring(pinfo.src) .. "->" .. tostring(pinfo.dst)
+end
+
+-- USB bulk heuristic: manually reassembles DUML packets split across multiple URBs.
+-- Wireshark has no desegmentation API for USB, so we maintain per-endpoint ByteArray
+-- state across frames.  On the first dissection pass (pinfo.visited == false) we
+-- accumulate data; on re-dissection passes we replay from the cached ByteArray.
+local function heuristic_dissector_usb(buffer, pinfo, tree)
+    local frame_key = pinfo.number
+    local conv_key = usb_conv_key(pinfo)
+
+    local combined_ba
+    if pinfo.visited then
+        combined_ba = usb_frame_ba[frame_key]
+        if not combined_ba then return false end
+    else
+        combined_ba = ByteArray.new()
+        local partial = usb_partial[conv_key]
+        if partial then combined_ba:append(partial) end
+        combined_ba:append(buffer:bytes())
+        usb_partial[conv_key] = nil  -- consumed; re-set below if there is leftover
+        usb_frame_ba[frame_key] = combined_ba
+    end
+
+    local combined_tvb = combined_ba:tvb("DJI DUML (reassembled)")
     local num_packets = 0
     local offset = 0
 
-    local i = 0
-    while (buffer:len() > offset) do
+    while true do
+        local remaining = combined_tvb:len() - offset
 
-        if (buffer:len() < 0xa) then break end
+        -- Need at least SOF (1) + length field (2) to do anything useful.
+        if remaining < 3 then
+            if not pinfo.visited and remaining > 0 then
+                usb_partial[conv_key] = combined_ba:subset(offset, remaining)
+            end
+            break
+        end
 
-        local pkt_type = buffer(offset,1):uint()
-        if (pkt_type ~= 0x55) then break end
+        if combined_tvb(offset, 1):uint() ~= 0x55 then break end
 
-        -- [1-2] The Pkt length | protocol version
-        local pkt_length = buffer(offset+1,2):le_uint()
-        local pkt_protover = pkt_length
-        -- bit32 lib requires LUA 5.2
-        pkt_length = bit32.band(pkt_length, 0x03FF)
-        pkt_protover = bit32.rshift(bit32.band(pkt_protover, 0xFC00), 10)
+        local raw = combined_tvb(offset + 1, 2):le_uint()
+        local pkt_length  = bit32.band(raw, 0x03FF)
+        local pkt_protover = bit32.rshift(bit32.band(raw, 0xFC00), 10)
 
-        if (pkt_length > buffer:len()) then break end
-        if (pkt_protover > 2) then break end
+        if pkt_length < 10 then break end
+        if pkt_protover > 2 then break end
+
+        -- Packet split across URB boundary: save bytes and wait for the next frame.
+        if remaining < pkt_length then
+            if not pinfo.visited then
+                usb_partial[conv_key] = combined_ba:subset(offset, remaining)
+            end
+            break
+        end
 
         num_packets = num_packets + 1
-        local subtree = tree:add (DJI_DUMLv1_PROTO, buffer())
-        subtree:add (f.delimiter, buffer(offset, 1))
-
-        dji_dumlv1_main_dissector(buffer(offset,pkt_length), pinfo, subtree)
+        local subtree = tree:add(DJI_DUMLv1_PROTO, combined_tvb(offset, pkt_length))
+        subtree:add(f.delimiter, combined_tvb(offset, 1))
+        dji_dumlv1_main_dissector(combined_tvb(offset, pkt_length), pinfo, subtree)
         offset = offset + pkt_length
-
     end
 
-    return (num_packets > 0)
+    return num_packets > 0
+end
+
+-- TCP heuristic: uses Wireshark's built-in TCP desegmentation API so that DUML
+-- packets split across TCP segments are reassembled automatically by the TCP layer.
+local function heuristic_dissector_tcp(buffer, pinfo, tree)
+    local num_packets = 0
+    local offset = 0
+
+    while true do
+        local remaining = buffer:len() - offset
+
+        -- Need at least SOF (1) + length field (2) to proceed.
+        if remaining < 3 then
+            if remaining > 0 then
+                pinfo.desegment_offset = offset
+                pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
+            end
+            break
+        end
+
+        if buffer(offset, 1):uint() ~= 0x55 then break end
+
+        local raw = buffer(offset + 1, 2):le_uint()
+        local pkt_length  = bit32.band(raw, 0x03FF)
+        local pkt_protover = bit32.rshift(bit32.band(raw, 0xFC00), 10)
+
+        if pkt_length < 10 then break end
+        if pkt_protover > 2 then break end
+
+        -- Tell the TCP layer exactly how many more bytes are needed.
+        if remaining < pkt_length then
+            pinfo.desegment_offset = offset
+            pinfo.desegment_len = pkt_length - remaining
+            return true
+        end
+
+        num_packets = num_packets + 1
+        local subtree = tree:add(DJI_DUMLv1_PROTO, buffer(offset, pkt_length))
+        subtree:add(f.delimiter, buffer(offset, 1))
+        dji_dumlv1_main_dissector(buffer(offset, pkt_length), pinfo, subtree)
+        offset = offset + pkt_length
+    end
+
+    return num_packets > 0
 end
 
 
 -- An initialization routine
 function DJI_DUMLv1_PROTO.init ()
+    -- Reset USB reassembly state on each Wireshark reload/re-analysis.
+    usb_partial = {}
+    usb_frame_ba = {}
     -- Non-heuristic USB dissector registration would look like this
     --DissectorTable.get("usb.bulk"):add(0xffff, DJI_DUMLv1_PROTO)
     -- Bluetooth dissector, used for DJI Osmo and Ronin devices
@@ -3444,5 +3528,5 @@ function DJI_DUMLv1_PROTO.init ()
     DissectorTable.get("btatt.handle"):add(0x0013, DJI_DUMLv1_PROTO) -- Ronin (write)
 end
 
-DJI_DUMLv1_PROTO:register_heuristic("usb.bulk", heuristic_dissector)
-DJI_DUMLv1_PROTO:register_heuristic("tcp", heuristic_dissector)
+DJI_DUMLv1_PROTO:register_heuristic("usb.bulk", heuristic_dissector_usb)
+DJI_DUMLv1_PROTO:register_heuristic("tcp", heuristic_dissector_tcp)
