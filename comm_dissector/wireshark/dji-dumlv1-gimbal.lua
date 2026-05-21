@@ -166,7 +166,7 @@ f.gimbal_params_masked06 = ProtoField.uint8 ("dji_dumlv1.gimbal_params_masked06"
   f.gimbal_params_sub_mode = ProtoField.uint8 ("dji_dumlv1.gimbal_params_sub_mode", "Sub Mode", base.HEX, nil, 0x20, nil)
   f.gimbal_params_mode = ProtoField.uint8 ("dji_dumlv1.gimbal_params_mode", "Mode", base.HEX, enums.GIMBAL_PARAMS_MODE_ENUM, 0xc0, nil)
 f.gimbal_params_roll_adjust = ProtoField.int8 ("dji_dumlv1.gimbal_params_roll_adjust", "Roll Adjust", base.DEC)
-f.gimbal_params_yaw_angle = ProtoField.uint16 ("dji_dumlv1.gimbal_params_yaw_angle", "Yaw Angle", base.HEX, nil, nil, "Not sure whether Yaw angle or Joytick Direction")
+f.gimbal_params_yaw_angle = ProtoField.int16 ("dji_dumlv1.gimbal_params_yaw_angle", "Joint Angle Pan", base.DEC, nil, nil, "0.1 degree, pan/yaw joint angle (motor angle relative to frame)")
   f.gimbal_params_joystick_ver_direction = ProtoField.uint16 ("dji_dumlv1.gimbal_params_joystick_ver_direction", "Joystick Ver Direction", base.HEX, nil, 0x03, nil)
   f.gimbal_params_joystick_hor_direction = ProtoField.uint16 ("dji_dumlv1.gimbal_params_joystick_hor_direction", "Joystick Hor Direction", base.HEX, nil, 0x0c, nil)
 f.gimbal_params_masked0a = ProtoField.uint8 ("dji_dumlv1.gimbal_params_masked0a", "Masked0A", base.HEX)
@@ -185,6 +185,15 @@ f.gimbal_params_unkn0c = ProtoField.uint32 ("dji_dumlv1.gimbal_params_unkn0c", "
 f.gimbal_params_unkn10 = ProtoField.uint32 ("dji_dumlv1.gimbal_params_unkn10", "Unknown10-i32", base.HEX)
 f.gimbal_params_unkn10b = ProtoField.bytes ("dji_dumlv1.gimbal_params_unkn10", "Unknown10-bt", base.SPACE)
 f.gimbal_params_unkn14 = ProtoField.uint32 ("dji_dumlv1.gimbal_params_unkn14", "Unknown14", base.HEX)
+f.gimbal_params_timestamp_us = ProtoField.uint32 ("dji_dumlv1.gimbal_params_timestamp_us", "Timestamp (µs)", base.DEC, nil, nil, "Gimbal internal clock timestamp in microseconds")
+f.gimbal_params_body_roll = ProtoField.int16 ("dji_dumlv1.gimbal_params_body_roll", "Body Frame Roll", base.DEC, nil, nil, "0.01 degree; equals -(Euler roll of orientation quaternion); encodes gimbal roll in body-fixed reference frame")
+f.gimbal_params_joint_angle_tilt = ProtoField.int16 ("dji_dumlv1.gimbal_params_joint_angle_tilt", "Joint Angle Tilt", base.DEC, nil, nil, "0.1 degree, tilt/pitch joint angle (motor angle relative to frame)")
+f.gimbal_params_joint_angle_roll = ProtoField.int16 ("dji_dumlv1.gimbal_params_joint_angle_roll", "Joint Angle Roll", base.DEC, nil, nil, "0.1 degree, roll joint angle (motor angle relative to frame)")
+f.gimbal_params_quat_x = ProtoField.float ("dji_dumlv1.gimbal_params_quat_x", "Orientation Quat X", base.DEC, nil, nil, "Gimbal absolute orientation quaternion (unit magnitude); x component")
+f.gimbal_params_quat_y = ProtoField.float ("dji_dumlv1.gimbal_params_quat_y", "Orientation Quat Y", base.DEC, nil, nil, "Gimbal absolute orientation quaternion; y component")
+f.gimbal_params_quat_z = ProtoField.float ("dji_dumlv1.gimbal_params_quat_z", "Orientation Quat Z", base.DEC, nil, nil, "Gimbal absolute orientation quaternion; z component (dominant ~±0.997 at ~180° pan)")
+f.gimbal_params_quat_w = ProtoField.float ("dji_dumlv1.gimbal_params_quat_w", "Orientation Quat W", base.DEC, nil, nil, "Gimbal absolute orientation quaternion; w component")
+f.gimbal_params_gimbal_idx = ProtoField.uint8 ("dji_dumlv1.gimbal_params_gimbal_idx", "Gimbal Index", base.DEC)
 
 local function gimbal_params_dissector(pkt_length, buffer, pinfo, subtree)
     local offset = 11
@@ -229,21 +238,47 @@ local function gimbal_params_dissector(pkt_length, buffer, pinfo, subtree)
     subtree:add_le (f.gimbal_params_single_click, payload(offset, 1))
     offset = offset + 1
 
-    -- Found additional 12 bytes in packet from WM620
+    -- Extended fields present in WM620+ firmware
     if (payload:len() >= offset + 12) then
 
-        subtree:add_le (f.gimbal_params_unkn0c, payload(offset, 4))
+        subtree:add_le (f.gimbal_params_timestamp_us, payload(offset, 4))
         offset = offset + 4
 
-        subtree:add_le (f.gimbal_params_unkn10, payload(offset, 4))
-        offset = offset + 4
+        subtree:add_le (f.gimbal_params_body_roll, payload(offset, 2))
+        offset = offset + 2
+        offset = offset + 2  -- reserved zero bytes
 
-        subtree:add_le (f.gimbal_params_unkn14, payload(offset, 4))
-        offset = offset + 4
+        subtree:add_le (f.gimbal_params_joint_angle_tilt, payload(offset, 2))
+        offset = offset + 2
+
+        subtree:add_le (f.gimbal_params_joint_angle_roll, payload(offset, 2))
+        offset = offset + 2
+
+        -- Orientation quaternion + tail present in 49-byte extended format (WM630/M200 series)
+        if (payload:len() >= offset + 25) then
+
+            subtree:add_le (f.gimbal_params_quat_x, payload(offset, 4))
+            offset = offset + 4
+
+            subtree:add_le (f.gimbal_params_quat_y, payload(offset, 4))
+            offset = offset + 4
+
+            subtree:add_le (f.gimbal_params_quat_z, payload(offset, 4))
+            offset = offset + 4
+
+            subtree:add_le (f.gimbal_params_quat_w, payload(offset, 4))
+            offset = offset + 4
+
+            offset = offset + 4  -- reserved zeros (status)
+            subtree:add_le (f.gimbal_params_gimbal_idx, payload(offset, 1))
+            offset = offset + 1
+            offset = offset + 4  -- reserved zeros
+
+        end
 
     elseif (payload:len() >= offset + 7) then
 
-        subtree:add_le (f.gimbal_params_unkn0c, payload(offset, 4))
+        subtree:add_le (f.gimbal_params_timestamp_us, payload(offset, 4))
         offset = offset + 4
 
         subtree:add_le (f.gimbal_params_unkn10b, payload(offset, 3))
@@ -251,7 +286,7 @@ local function gimbal_params_dissector(pkt_length, buffer, pinfo, subtree)
 
     end
 
-    if (offset ~= 12) and (offset ~= 19) and (offset ~= 24) then subtree:add_expert_info(PI_MALFORMED,PI_ERROR,"Gimbal Params: Offset does not match - internal inconsistency") end
+    if (offset ~= 12) and (offset ~= 19) and (offset ~= 24) and (offset ~= 49) then subtree:add_expert_info(PI_MALFORMED,PI_ERROR,"Gimbal Params: Offset does not match - internal inconsistency") end
     if (payload:len() ~= offset) then subtree:add_expert_info(PI_PROTOCOL,PI_WARN,"Gimbal Params: Payload size different than expected") end
 end
 
